@@ -8,7 +8,6 @@ import com.openspec.core.openapi.OpenApiSpecification;
 import com.openspec.core.protocol.dto.ActualRequestDto;
 import com.openspec.core.protocol.dto.CommandExecutionResultDto;
 import com.openspec.core.protocol.dto.CommandValidationEvaluationDto;
-import com.openspec.core.protocol.dto.TestBatchMetadata;
 import com.openspec.core.protocol.dto.TestCommandDto;
 import com.openspec.core.protocol.enums.BatchExecutionStatus;
 import com.openspec.core.protocol.enums.NextAction;
@@ -24,7 +23,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import java.net.URI;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;

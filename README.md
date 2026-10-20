@@ -89,6 +89,13 @@ Once the application is running, the frontend team can explore and test all endp
 | **Logs Artifact** | `GET` | `/api/v1/tests/{testRunId}/logs` | `200 OK` | `text/plain` | Retrieve raw test execution logs |
 | **Logs Download** | `GET` | `/api/v1/tests/{testRunId}/logs/download` | `200 OK` | `text/plain` | Download raw logs as attachment file |
 | **Stop Test Run** | `POST` | `/api/v1/tests/{testRunId}/stop` | `202 Accepted` | `application/json` | Submit cancellation request for an active test run |
+| **Protocol Simulation** | `GET` | `/api/v1/simulation/test-batch` | `200 OK` | `application/json` | Get simulated AI test batch command list (`TEST_BATCH`) |
+| **Protocol Simulation** | `GET` | `/api/v1/simulation/execution-results` | `200 OK` | `application/json` | Get simulated backend HTTP execution results (`BATCH_EXECUTION_RESULTS`) |
+| **Protocol Simulation** | `GET` | `/api/v1/simulation/batch-analysis` | `200 OK` | `application/json` | Get simulated AI verdicts and security findings (`BATCH_ANALYSIS`) |
+| **Protocol Simulation** | `GET` | `/api/v1/simulation/test-run-completed` | `200 OK` | `application/json` | Get simulated test completion and Markdown report (`TEST_RUN_COMPLETED`) |
+| **Protocol Simulation** | `GET` | `/api/v1/simulation/test-failed` | `200 OK` | `application/json` | Get simulated run failure payload (`TEST_FAILED`) |
+| **Protocol Simulation** | `GET` | `/api/v1/simulation/full-flow` | `200 OK` | `application/json` | Get all 7 protocol messages in conversational sequence |
+| **Protocol Simulation** | `GET` | `/api/v1/simulation/events` | `200 OK` | `text/event-stream` | Stream live simulated protocol events via SSE in real time |
 
 ---
 
@@ -258,7 +265,153 @@ In case of validation failures, missing entities, or server issues, responses ad
 
 ---
 
-## 9. Project Directory Structure
+## 9. Protocol Simulation & Frontend Handoff Guide
+
+To allow the frontend team to develop UI dashboards, live test stream monitors, findings lists, and Markdown report viewers **immediately** without depending on a live AI key or target service, the backend exposes **Protocol Simulation Endpoints** under `/api/v1/simulation`.
+
+### How the AI Testing Protocol Works:
+1. **`TEST_BATCH`**: The AI plans and proposes an ordered list of HTTP commands to execute against the target API.
+2. **`BATCH_EXECUTION_RESULTS`**: The backend engine executes the commands, collects the actual status code, headers, response bodies, and assertion verdicts, and returns this evidence to the AI.
+3. **`BATCH_ANALYSIS`**: The AI evaluates the execution results against the OpenAPI specification, flags defects/vulnerabilities as severity-ranked `findings` (HIGH, MEDIUM, LOW), assigns `PASSED`/`FAILED` command verdicts, and instructs the next action (`NEXT_TEST`, `EXECUTE_BATCH`, or `FINISH_TESTING`).
+4. **`TEST_RUN_COMPLETED`**: Concludes the test run with overall metrics and an authoritative GitHub Flavored Markdown report.
+
+---
+
+### Simulation Endpoints Reference:
+
+#### 1. `GET /api/v1/simulation/test-batch?sequence=1|2`
+- **Sequence 1**: Baseline discovery checks (`GET /v1/products`, `POST /v1/orders`).
+- **Sequence 2**: Edge cases and fuzzing probes (negative order quantity, SQL injection attempt).
+- **Sample Payload**:
+```json
+{
+  "type": "TEST_BATCH",
+  "testRunId": "e3b0c442-98fc-1c14-9afb-f4c8996fb924",
+  "testId": "ecommerce-checkout-flow",
+  "testName": "E-Commerce Core Flow & Boundary Verification",
+  "testType": "FAST",
+  "batch": {
+    "batchId": "batch-001",
+    "sequence": 1,
+    "isLastBatch": false
+  },
+  "commands": [
+    {
+      "commandId": "cmd-001",
+      "order": 1,
+      "name": "List Active Products Catalog",
+      "request": {
+        "method": "GET",
+        "path": "/v1/products",
+        "queryParams": { "category": "electronics", "limit": "10" },
+        "headers": { "Accept": "application/json" }
+      },
+      "expected": {
+        "statusCodes": [200],
+        "contentType": "application/json"
+      },
+      "timeoutMs": 5000
+    }
+  ],
+  "nextAction": "EXECUTE_BATCH"
+}
+```
+
+#### 2. `GET /api/v1/simulation/execution-results?sequence=1|2`
+- **Sample Payload (Sequence 2 demonstrating unhandled 500 crash)**:
+```json
+{
+  "type": "BATCH_EXECUTION_RESULTS",
+  "testRunId": "e3b0c442-98fc-1c14-9afb-f4c8996fb924",
+  "testId": "ecommerce-checkout-flow",
+  "batchId": "batch-002",
+  "batchStatus": "COMPLETED",
+  "executionResults": [
+    {
+      "commandId": "cmd-003",
+      "order": 1,
+      "name": "Negative Order Quantity Validation Probe",
+      "statusCode": 500,
+      "durationMs": 230,
+      "responseBody": "{\"status\":500,\"error\":\"Internal Server Error\",\"message\":\"java.lang.IllegalArgumentException: Total items cannot be negative\"}",
+      "backendValidation": {
+        "statusPassed": false,
+        "contentTypePassed": true,
+        "evidence": "Expected HTTP status in [400, 422] but received 500 Internal Server Error"
+      }
+    }
+  ]
+}
+```
+
+#### 3. `GET /api/v1/simulation/batch-analysis?sequence=1|2`
+- **Sample Payload (Sequence 2 showing AI findings)**:
+```json
+{
+  "type": "BATCH_ANALYSIS",
+  "testRunId": "e3b0c442-98fc-1c14-9afb-f4c8996fb924",
+  "batchId": "batch-002",
+  "status": "FAILED",
+  "report": {
+    "summary": "Batch 2 identified a severe robustness defect: submitting a negative quantity triggers an unhandled 500 Internal Server Error with internal exception details leaked.",
+    "commandResults": [
+      {
+        "commandId": "cmd-003",
+        "status": "FAILED",
+        "explanation": "Submitting a negative quantity crashed the server with HTTP 500 instead of a standard 400/422 validation response."
+      }
+    ],
+    "findings": [
+      {
+        "id": "find-001",
+        "severity": "HIGH",
+        "title": "Unhandled 500 Internal Server Error on Negative Order Quantity",
+        "description": "Sending a negative order quantity (-5) to POST /v1/orders causes an unhandled java.lang.IllegalArgumentException yielding HTTP 500 instead of a standard 400 Bad Request validation response.",
+        "relatedCommandId": "cmd-003",
+        "evidence": "HTTP 500 Internal Server Error; message: Total items cannot be negative"
+      }
+    ]
+  },
+  "nextAction": "FINISH_TESTING"
+}
+```
+
+#### 4. `GET /api/v1/simulation/test-run-completed`
+- Returns `TestRunCompletedMessage` with summary metrics and the full GitHub Flavored Markdown report.
+
+#### 5. `GET /api/v1/simulation/full-flow`
+- Returns an array containing the entire 7-message dialogue (`List<ProtocolMessage>`) in exact chronological sequence.
+
+#### 6. `GET /api/v1/simulation/events?intervalMs=1000` (Real-time SSE Stream)
+- Connect using standard browser `EventSource` in React/Vue/Angular:
+```typescript
+const eventSource = new EventSource('http://localhost:8081/api/v1/simulation/events?intervalMs=1000');
+
+eventSource.addEventListener('TEST_BATCH', (event) => {
+  const batch = JSON.parse(event.data);
+  console.log('AI generated batch:', batch);
+});
+
+eventSource.addEventListener('BATCH_EXECUTION_RESULTS', (event) => {
+  const results = JSON.parse(event.data);
+  console.log('Execution results:', results);
+});
+
+eventSource.addEventListener('BATCH_ANALYSIS', (event) => {
+  const analysis = JSON.parse(event.data);
+  console.log('Analysis and findings:', analysis.report.findings);
+});
+
+eventSource.addEventListener('TEST_RUN_COMPLETED', (event) => {
+  const completed = JSON.parse(event.data);
+  console.log('Markdown report:', completed.finalReport.content);
+  eventSource.close();
+});
+```
+
+---
+
+## 10. Project Directory Structure
 
 ```
 com.openspec
@@ -266,11 +419,12 @@ com.openspec
 ├── config
 │   └── OpenApiConfig.java            # Springdoc OpenAPI & Swagger UI metadata
 ├── controller
-│   ├── AiConfigurationController.java# Endpoints for AI settings and status
-│   └── TestRunController.java        # Endpoints for validation, runs, SSE, artifacts
+│   ├── AiConfigurationController.java   # Endpoints for AI settings and status
+│   ├── ProtocolSimulationController.java# Mock protocol sandbox endpoints & SSE stream
+│   └── TestRunController.java           # Endpoints for validation, runs, SSE, artifacts
 ├── dto
 │   ├── event
-│   │   └── TestRunEventDto.java      # SSE event payload structure
+│   │   └── TestRunEventDto.java         # SSE event payload structure
 │   ├── request
 │   │   ├── AiConfigurationRequest.java
 │   │   ├── CreateTestRunRequest.java
@@ -292,12 +446,13 @@ com.openspec
 │   ├── TestRunStatus.java
 │   └── TestType.java
 ├── exception
-│   ├── GlobalExceptionHandler.java   # Centralized error mapping to ErrorResponse
+│   ├── GlobalExceptionHandler.java      # Centralized error mapping to ErrorResponse
 │   └── ResourceNotFoundException.java
 └── service
-    ├── AiConfigurationService.java   # Service contract interface
-    ├── TestRunService.java           # Service contract interface
+    ├── AiConfigurationService.java      # Service contract interface
+    ├── ProtocolSimulationService.java   # Generates realistic mock protocol data and SSE streams
+    ├── TestRunService.java              # Service contract interface
     └── impl
         ├── AiConfigurationServiceImpl.java # Stub implementation
-        └── TestRunServiceImpl.java        # Stub implementation
+        └── TestRunServiceImpl.java         # Stub implementation
 ```

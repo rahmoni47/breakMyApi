@@ -16,7 +16,6 @@ import com.openspec.core.protocol.enums.AnalysisStatus;
 import com.openspec.core.protocol.enums.BatchExecutionStatus;
 import com.openspec.core.protocol.enums.CommandStatus;
 import com.openspec.core.protocol.enums.FindingSeverity;
-import com.openspec.core.protocol.enums.MessageType;
 import com.openspec.core.protocol.enums.NextAction;
 import com.openspec.core.protocol.messages.BatchAnalysisMessage;
 import com.openspec.core.protocol.messages.BatchExecutionResultsMessage;

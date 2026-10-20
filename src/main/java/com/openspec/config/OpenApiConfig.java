@@ -46,7 +46,8 @@ public class OpenApiConfig {
                                 .url("https://www.apache.org/licenses/LICENSE-2.0")))
                 .tags(List.of(
                         new Tag().name("AI Configuration").description("Endpoints for configuring and checking AI/LLM provider settings"),
-                        new Tag().name("Test Run Management").description("Endpoints for OpenAPI validation, test run creation, SSE stream, history, and lifecycle control")
+                        new Tag().name("Test Run Management").description("Endpoints for OpenAPI validation, test run creation, SSE stream, history, and lifecycle control"),
+                        new Tag().name("Protocol Simulation").description("Mock sandbox endpoints demonstrating the internal testing communication protocol for frontend handoff")
                 ))
                 .servers(List.of(
                         new Server()
