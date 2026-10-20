@@ -1,5 +1,15 @@
-FROM eclipse-temurin:17-jre
+# المرحلة الأولى: بناء المشروع
+FROM eclipse-temurin:17-jdk AS build
 WORKDIR /app
-COPY target/*.jar app.jar
+COPY pom.xml .
+COPY src ./src
+COPY mvnw .
+COPY .mvn .mvn
+RUN chmod +x ./mvnw
+RUN ./mvnw clean package -DskipTests
+
+FROM eclipse-temurin:17-jdk
+VOLUME /tmp
+COPY --from=build /app/target/*.jar app.jar
+ENTRYPOINT ["java","-jar","/app.jar"]
 EXPOSE 8081
-ENTRYPOINT ["java", "-jar", "app.jar"]
