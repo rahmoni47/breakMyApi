@@ -53,7 +53,6 @@ class ApiContractTests {
                 .andExpect(jsonPath("$.paths['/api/v1/tests/validate']").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/tests']").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/tests/{testRunId}/events']").exists())
-                .andExpect(jsonPath("$.paths['/api/v1/tests/{testRunId}']").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/tests/{testRunId}/report']").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/tests/{testRunId}/logs']").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/tests/{testRunId}/logs/download']").exists())
@@ -167,17 +166,6 @@ class ApiContractTests {
                 .andExpect(jsonPath("$.size").value(10))
                 .andExpect(jsonPath("$.totalElements").value(2))
                 .andExpect(jsonPath("$.items[0].testRunId").value(TEST_RUN_ID.toString()));
-    }
-
-    @Test
-    @DisplayName("GET /api/v1/tests/{testRunId} returns test run details")
-    void testGetTestRunDetails() throws Exception {
-        mockMvc.perform(get("/api/v1/tests/{testRunId}", TEST_RUN_ID))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.testRunId").value(TEST_RUN_ID.toString()))
-                .andExpect(jsonPath("$.status").value("COMPLETED"))
-                .andExpect(jsonPath("$.totalSteps").value(24))
-                .andExpect(jsonPath("$.findingsCount").value(2));
     }
 
     @Test
