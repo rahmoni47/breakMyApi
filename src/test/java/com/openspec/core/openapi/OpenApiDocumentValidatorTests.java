@@ -123,4 +123,33 @@ class OpenApiDocumentValidatorTests {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("missing required 'paths'");
     }
+
+    @Test
+    @DisplayName("validateSpecification returns valid report for conforming OpenAPI document")
+    void testValidateSpecificationValid() {
+        var response = validator.validateSpecification(VALID_OPENAPI_JSON);
+        assertThat(response.isValid()).isTrue();
+        assertThat(response.getDetectedVersion()).isEqualTo("3.0.3");
+        assertThat(response.getEndpointsCount()).isEqualTo(2);
+        assertThat(response.getErrors()).isEmpty();
+        assertThat(response.getMessage()).contains("passed validation");
+    }
+
+    @Test
+    @DisplayName("validateSpecification returns error report for malformed document")
+    void testValidateSpecificationMalformed() {
+        var response = validator.validateSpecification("this is not json or yaml : { [");
+        assertThat(response.isValid()).isFalse();
+        assertThat(response.getErrors()).isNotEmpty();
+        assertThat(response.getEndpointsCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("validateSpecification returns error for null or blank document")
+    void testValidateSpecificationBlank() {
+        var response = validator.validateSpecification("   ");
+        assertThat(response.isValid()).isFalse();
+        assertThat(response.getErrors()).isNotEmpty();
+        assertThat(response.getErrors().get(0).getMessage()).contains("cannot be null or empty");
+    }
 }

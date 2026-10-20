@@ -1,5 +1,6 @@
 package com.openspec.controller;
 
+import com.openspec.core.protocol.messages.TestRunCompletedMessage;
 import com.openspec.dto.event.TestRunEventDto;
 import com.openspec.dto.request.CreateTestRunRequest;
 import com.openspec.dto.request.ValidateOpenApiRequest;
@@ -81,11 +82,24 @@ public class TestRunController {
                 return ResponseEntity.status(HttpStatus.ACCEPTED).body(response);
         }
 
+        @Operation(summary = "Execute a FAST test run synchronously", description = "Executes an end-to-end FAST test run synchronously using Google AI Studio Gemini model. "
+                        + "Sends the initial prompt to the AI explaining openSpec's testing workflow, receives the generated test batch, executes HTTP requests against the target API, and returns the complete test run details.")
+        @ApiResponses(value = {
+                        @ApiResponse(responseCode = "200", description = "Fast test run executed successfully", content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = TestRunCompletedMessage.class))),
+                        @ApiResponse(responseCode = "400", description = "Bad Request - Validation failure on request payload", content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = ErrorResponse.class))),
+                        @ApiResponse(responseCode = "500", description = "Internal Server Error", content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = ErrorResponse.class)))
+        })
+        @PostMapping(value = "/fast-run", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+        public ResponseEntity<TestRunCompletedMessage> executeFastTest(
+                        @Valid @RequestBody CreateTestRunRequest request) {
+                TestRunCompletedMessage response = testRunService.executeFastTestSynchronously(request);
+                return ResponseEntity.ok(response);
+        }
+
         @Operation(summary = "Subscribe to real-time Server-Sent Events (SSE) for a test run", description = "Establishes a persistent SSE stream (text/event-stream) transmitting real-time execution events. "
                         + "Each event adheres to TestRunEventDto with event types defined in TestEventType "
                         + "(e.g., TEST_RUN_STARTED, TEST_STEP_STARTED, TEST_STEP_COMPLETED, FINDING_DISCOVERED, PROGRESS_UPDATED, WARNING, "
-                        + "TEST_RUN_FAILED, TEST_RUN_COMPLETED, TEST_RUN_STOPPED, FINAL_REPORT_AVAILABLE). "
-                        + "Note: In this API contract phase, no live event publisher is attached.")
+                        + "TEST_RUN_FAILED, TEST_RUN_COMPLETED, TEST_RUN_STOPPED, FINAL_REPORT_AVAILABLE).")
         @ApiResponses(value = {
                         @ApiResponse(responseCode = "200", description = "SSE event stream initiated successfully", content = @Content(mediaType = MediaType.TEXT_EVENT_STREAM_VALUE, schema = @Schema(implementation = TestRunEventDto.class))),
                         @ApiResponse(responseCode = "404", description = "Test run not found", content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = ErrorResponse.class))),
@@ -94,11 +108,20 @@ public class TestRunController {
         @GetMapping(value = "/{testRunId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
         public SseEmitter subscribeToEvents(
                         @Parameter(description = "UUID of the test run to monitor", required = true) @PathVariable UUID testRunId) {
-                // Contract stub: SseEmitter created and immediately completed.
-                // Full background event publishing will be implemented in subsequent phases.
-                SseEmitter emitter = new SseEmitter(30_000L);
-                emitter.complete();
-                return emitter;
+                return testRunService.subscribeToEvents(testRunId);
+        }
+
+        @Operation(summary = "Retrieve test run details by ID", description = "Returns complete execution details, statistics, and findings for a given test run.")
+        @ApiResponses(value = {
+                        @ApiResponse(responseCode = "200", description = "Test run details retrieved successfully", content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = TestRunDetailsResponse.class))),
+                        @ApiResponse(responseCode = "404", description = "Test run not found", content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = ErrorResponse.class))),
+                        @ApiResponse(responseCode = "500", description = "Internal Server Error", content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = ErrorResponse.class)))
+        })
+        @GetMapping(value = "/{testRunId}", produces = MediaType.APPLICATION_JSON_VALUE)
+        public ResponseEntity<TestRunDetailsResponse> getTestRunDetails(
+                        @Parameter(description = "UUID of the test run", required = true) @PathVariable UUID testRunId) {
+                TestRunDetailsResponse response = testRunService.getTestRunDetails(testRunId);
+                return ResponseEntity.ok(response);
         }
 
         @Operation(summary = "List historical test runs with pagination and filters", description = "Retrieves a paginated collection of past test runs. Results can optionally be filtered by status and name.")

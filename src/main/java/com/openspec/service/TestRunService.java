@@ -76,4 +76,20 @@ public interface TestRunService {
      * @return cancellation acknowledgment response
      */
     StopTestRunResponse stopTestRun(UUID testRunId);
+
+    /**
+     * Subscribes to live Server-Sent Events (SSE) for an in-progress test run.
+     *
+     * @param testRunId test run identifier
+     * @return active SseEmitter
+     */
+    org.springframework.web.servlet.mvc.method.annotation.SseEmitter subscribeToEvents(UUID testRunId);
+
+    /**
+     * Executes an immediate, synchronous FAST test run using Gemini AI and returns the full completed report.
+     *
+     * @param request optional request details (defaults to standard store test suite if null/blank)
+     * @return completed test run message with Markdown report
+     */
+    com.openspec.core.protocol.messages.TestRunCompletedMessage executeFastTestSynchronously(CreateTestRunRequest request);
 }

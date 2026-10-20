@@ -114,7 +114,27 @@ class ApiContractTests {
     @DisplayName("POST /api/v1/tests/validate validates OpenAPI specification")
     void testValidateOpenApiDocument() throws Exception {
         ValidateOpenApiRequest request = ValidateOpenApiRequest.builder()
-                .openApiDocument("{\"openapi\": \"3.0.3\", \"info\": {\"title\": \"Test API\", \"version\": \"1.0.0\"}}")
+                .openApiDocument("""
+                        {
+                          "openapi": "3.0.3",
+                          "info": {
+                            "title": "Test API",
+                            "version": "1.0.0"
+                          },
+                          "paths": {
+                            "/charges": {
+                              "post": {
+                                "summary": "Create charge",
+                                "responses": {
+                                  "201": {
+                                    "description": "Created"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                        """)
                 .build();
 
         mockMvc.perform(post("/api/v1/tests/validate")
@@ -123,7 +143,23 @@ class ApiContractTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.valid").value(true))
                 .andExpect(jsonPath("$.detectedVersion").value("3.0.3"))
-                .andExpect(jsonPath("$.endpointsCount").value(15));
+                .andExpect(jsonPath("$.endpointsCount").value(1));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/tests/validate returns valid=false for malformed document")
+    void testValidateOpenApiDocumentMalformed() throws Exception {
+        ValidateOpenApiRequest request = ValidateOpenApiRequest.builder()
+                .openApiDocument("{ this is not valid json or yaml }")
+                .build();
+
+        mockMvc.perform(post("/api/v1/tests/validate")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.valid").value(false))
+                .andExpect(jsonPath("$.errors").isArray())
+                .andExpect(jsonPath("$.endpointsCount").value(0));
     }
 
     @Test

@@ -3,9 +3,18 @@ package com.openspec.core.openapi;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLMapper;
+import com.openspec.dto.response.OpenApiValidationErrorDto;
+import com.openspec.dto.response.OpenApiValidationResponse;
+import io.swagger.parser.OpenAPIParser;
+import io.swagger.v3.oas.models.OpenAPI;
+import io.swagger.v3.oas.models.Operation;
+import io.swagger.v3.oas.models.PathItem;
+import io.swagger.v3.parser.core.models.ParseOptions;
+import io.swagger.v3.parser.core.models.SwaggerParseResult;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -190,5 +199,193 @@ public class OpenApiDocumentValidator {
                 throw new IllegalArgumentException("Failed to parse document as JSON or YAML: " + jsonEx.getMessage());
             }
         }
+    }
+
+    /**
+     * Validates an OpenAPI/Swagger specification document using the official Swagger parser.
+     * Computes syntax errors, schema standard violations, warnings, detected version,
+     * and total discovered operations count.
+     *
+     * @param documentContent OpenAPI specification as JSON or YAML string
+     * @return validation response report
+     */
+    public OpenApiValidationResponse validateSpecification(String documentContent) {
+        if (documentContent == null || documentContent.trim().isEmpty()) {
+            return OpenApiValidationResponse.builder()
+                    .valid(false)
+                    .errors(List.of(OpenApiValidationErrorDto.builder()
+                            .path("/")
+                            .message("OpenAPI document content cannot be null or empty")
+                            .severity("ERROR")
+                            .build()))
+                    .warnings(Collections.emptyList())
+                    .detectedVersion("UNKNOWN")
+                    .endpointsCount(0)
+                    .message("OpenAPI specification is empty")
+                    .build();
+        }
+
+        ParseOptions options = new ParseOptions();
+        options.setResolve(true);
+        options.setResolveFully(false);
+
+        SwaggerParseResult parseResult = new OpenAPIParser().readContents(documentContent, null, options);
+        OpenAPI openAPI = parseResult.getOpenAPI();
+        List<String> messages = parseResult.getMessages() != null ? parseResult.getMessages() : Collections.emptyList();
+
+        List<OpenApiValidationErrorDto> errors = new ArrayList<>();
+        List<String> warnings = new ArrayList<>();
+
+        if (openAPI == null) {
+            // Severe syntax or schema failure
+            if (!messages.isEmpty()) {
+                for (String msg : messages) {
+                    errors.add(OpenApiValidationErrorDto.builder()
+                            .path(extractPointerFromMessage(msg))
+                            .message(msg)
+                            .severity("ERROR")
+                            .build());
+                }
+            } else {
+                errors.add(OpenApiValidationErrorDto.builder()
+                        .path("/")
+                        .message("Malformed specification: unable to parse as OpenAPI 3.x or Swagger 2.0")
+                        .severity("ERROR")
+                        .build());
+            }
+
+            return OpenApiValidationResponse.builder()
+                    .valid(false)
+                    .errors(errors)
+                    .warnings(warnings)
+                    .detectedVersion("UNKNOWN")
+                    .endpointsCount(0)
+                    .message("OpenAPI specification failed validation checks (" + errors.size() + " error(s) found)")
+                    .build();
+        }
+
+        // Detect OpenAPI / Swagger version
+        String detectedVersion = openAPI.getOpenapi();
+        if (detectedVersion == null || detectedVersion.isBlank()) {
+            if (openAPI.getSpecVersion() != null) {
+                detectedVersion = openAPI.getSpecVersion().name();
+            } else {
+                detectedVersion = "3.0.0";
+            }
+        }
+
+        // Process parser diagnostics
+        for (String msg : messages) {
+            if (isStrictError(msg)) {
+                errors.add(OpenApiValidationErrorDto.builder()
+                        .path(extractPointerFromMessage(msg))
+                        .message(msg)
+                        .severity("ERROR")
+                        .build());
+            } else {
+                warnings.add(msg);
+            }
+        }
+
+        // Inspect 'info' object
+        if (openAPI.getInfo() == null) {
+            errors.add(OpenApiValidationErrorDto.builder()
+                    .path("/info")
+                    .message("Required 'info' object is missing")
+                    .severity("ERROR")
+                    .build());
+        } else {
+            if (openAPI.getInfo().getTitle() == null || openAPI.getInfo().getTitle().isBlank()) {
+                warnings.add("Recommended property 'info.title' is missing or blank");
+            }
+            if (openAPI.getInfo().getVersion() == null || openAPI.getInfo().getVersion().isBlank()) {
+                warnings.add("Recommended property 'info.version' is missing or blank");
+            }
+        }
+
+        // Inspect and count paths and operations
+        int operationsCount = 0;
+        if (openAPI.getPaths() == null || openAPI.getPaths().isEmpty()) {
+            warnings.add("Document does not declare any API endpoints in 'paths' object");
+        } else {
+            for (Map.Entry<String, PathItem> pathEntry : openAPI.getPaths().entrySet()) {
+                String pathName = pathEntry.getKey();
+                PathItem pathItem = pathEntry.getValue();
+                if (pathItem == null) {
+                    continue;
+                }
+
+                Map<PathItem.HttpMethod, Operation> ops = pathItem.readOperationsMap();
+                if (ops != null) {
+                    operationsCount += ops.size();
+
+                    for (Map.Entry<PathItem.HttpMethod, Operation> opEntry : ops.entrySet()) {
+                        String method = opEntry.getKey().name();
+                        Operation op = opEntry.getValue();
+
+                        if (op.getSummary() == null || op.getSummary().isBlank()) {
+                            warnings.add("Optional summary missing on operation " + method + " " + pathName);
+                        }
+                        if (op.getOperationId() == null || op.getOperationId().isBlank()) {
+                            warnings.add("Recommended operationId missing on operation " + method + " " + pathName);
+                        }
+                        if (op.getResponses() == null || op.getResponses().isEmpty()) {
+                            errors.add(OpenApiValidationErrorDto.builder()
+                                    .path("/paths/~1" + sanitizePath(pathName) + "/" + method.toLowerCase() + "/responses")
+                                    .message("Operation " + method + " " + pathName + " is missing responses definition")
+                                    .severity("ERROR")
+                                    .build());
+                        }
+                    }
+                }
+            }
+        }
+
+        boolean isValid = errors.isEmpty();
+        String summaryMessage = isValid
+                ? "OpenAPI specification passed validation checks (" + detectedVersion + ", " + operationsCount + " operations discovered)"
+                : "OpenAPI specification failed validation checks (" + errors.size() + " error(s) found)";
+
+        return OpenApiValidationResponse.builder()
+                .valid(isValid)
+                .errors(errors)
+                .warnings(warnings)
+                .detectedVersion(detectedVersion)
+                .endpointsCount(operationsCount)
+                .message(summaryMessage)
+                .build();
+    }
+
+    private String extractPointerFromMessage(String msg) {
+        if (msg == null) {
+            return "/";
+        }
+        if (msg.contains("attribute paths")) {
+            return "/paths";
+        } else if (msg.contains("attribute info")) {
+            return "/info";
+        } else if (msg.contains("attribute openapi") || msg.contains("attribute swagger")) {
+            return "/";
+        }
+        return "/";
+    }
+
+    private boolean isStrictError(String msg) {
+        if (msg == null) {
+            return false;
+        }
+        String lower = msg.toLowerCase();
+        return lower.contains("is missing")
+                || lower.contains("not valid")
+                || lower.contains("cannot be null")
+                || lower.contains("failed to parse")
+                || lower.contains("malformed");
+    }
+
+    private String sanitizePath(String path) {
+        if (path == null) {
+            return "";
+        }
+        return path.startsWith("/") ? path.substring(1).replace("/", "~1") : path.replace("/", "~1");
     }
 }
